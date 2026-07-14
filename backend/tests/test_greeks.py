@@ -49,9 +49,8 @@ class TestBlackScholesCalculator:
 
         call_price = BlackScholesCalculator.calculate_call_price(S, K, T, r, sigma)
 
-        # OTM call price should be less than intrinsic value
+        # OTM call price is pure time value
         assert call_price > 0, "OTM call price should be positive (time value)"
-        assert call_price < (S - K), "OTM call price should be less than intrinsic value"
 
     def test_put_call_parity(self):
         """Test put-call parity: C - P = S - K*e^(-rT)"""
