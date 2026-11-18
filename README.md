@@ -34,7 +34,7 @@ A compact list of the skills this codebase exercises end-to-end. Each bullet map
 ### DevOps / Production Readiness
 - **Multi-stage Dockerfile** (Python 3.11-slim builder + lean runtime), running as a non-root `appuser`, `tini` as PID 1 for clean signal handling, and a baked-in `HEALTHCHECK`.
 - **docker-compose** stack with a hardened Nginx reverse proxy for the static frontend (`docker-compose.yml`, `nginx.conf`, `proxy_headers.conf`); separate `docker-compose.prod.yml` for production.
-- **Deployment playbooks** for AWS, GCP, and Azure, plus an `OPERATIONS.md` runbook and `DEPLOYMENT-CHECKLIST.md` pre-flight.
+- **Deployment playbooks** for AWS, GCP, and Azure, plus an [operations runbook](docs/operations.md) and a [pre-flight checklist](docs/deployment/checklist.md).
 - **Deployment validation scripts** for Linux (`validate-deployment.sh`) and Windows (`validate-deployment.bat`).
 - **Pytest suite** covering ATM/ITM/OTM regimes and edge cases on every Greek.
 
@@ -219,10 +219,26 @@ BlackScholes-Greeks-Dashboard/
 ├── docker-compose.yml                  # Local stack (backend + Nginx)
 ├── docker-compose.prod.yml             # Production stack
 ├── nginx.conf, proxy_headers.conf      # Reverse proxy config
-├── DEPLOYMENT-AWS.md / -GCP.md /-AZURE.md
-├── OPERATIONS.md                       # Runbook
-└── DEPLOYMENT-CHECKLIST.md             # Pre-flight
+└── docs/
+    ├── deployment/                     # AWS, GCP, Azure guides + pre-flight checklist
+    ├── operations.md                   # Runbook
+    ├── requirements.md                 # Functional requirements
+    └── quick-reference.md              # Common commands
 ```
+
+---
+
+## Documentation
+
+| Guide | What it covers |
+|---|---|
+| [Deployment overview](docs/deployment/README.md) | Choosing a target and deployment steps |
+| [AWS](docs/deployment/aws.md) · [GCP](docs/deployment/gcp.md) · [Azure](docs/deployment/azure.md) | Cloud-specific playbooks |
+| [Production hardening](docs/deployment/production.md) | Security and production configuration |
+| [Pre-flight checklist](docs/deployment/checklist.md) | Checks before going live |
+| [Operations runbook](docs/operations.md) | Monitoring, logs, troubleshooting |
+| [Requirements](docs/requirements.md) | Functional and non-functional requirements |
+| [Quick reference](docs/quick-reference.md) | Common commands |
 
 ---
 
