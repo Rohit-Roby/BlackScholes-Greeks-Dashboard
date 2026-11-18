@@ -301,10 +301,10 @@ gcloud run services update-traffic options-greeks-api \
 ### Documentation
 
 - **Main README**: [README.md](README.md)
-- **AWS Deployment**: [DEPLOYMENT-AWS.md](DEPLOYMENT-AWS.md)
-- **GCP Deployment**: [DEPLOYMENT-GCP.md](DEPLOYMENT-GCP.md)
-- **Operations**: [OPERATIONS.md](OPERATIONS.md)
-- **Production Guide**: [PRODUCTION-DEPLOYMENT.md](PRODUCTION-DEPLOYMENT.md)
+- **AWS Deployment**: [aws.md](aws.md)
+- **GCP Deployment**: [gcp.md](gcp.md)
+- **Operations**: [operations.md](../operations.md)
+- **Production Guide**: [production.md](production.md)
 
 ### Validation
 
@@ -371,7 +371,7 @@ Before going live, verify:
 ## Contact & Support
 
 For issues:
-1. Check documentation in OPERATIONS.md
+1. Check documentation in [operations.md](../operations.md)
 2. Review application logs
 3. Check platform-specific documentation
 4. Contact development team

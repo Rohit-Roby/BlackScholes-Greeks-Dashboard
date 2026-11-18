@@ -72,7 +72,7 @@ docker run -d \
 ## 3. Cloud Deployment Options
 
 ### AWS
-See [DEPLOYMENT-AWS.md](DEPLOYMENT-AWS.md) for:
+See [aws.md](aws.md) for:
 - EC2 deployment
 - ECS deployment
 - Elastic Beanstalk deployment
@@ -84,7 +84,7 @@ eb deploy
 ```
 
 ### Google Cloud Platform
-See [DEPLOYMENT-GCP.md](DEPLOYMENT-GCP.md) for:
+See [gcp.md](gcp.md) for:
 - Cloud Run deployment (recommended - simplest)
 - Compute Engine deployment
 - App Engine deployment
@@ -493,8 +493,8 @@ docker build -f backend/Dockerfile -t greeks-api:latest ./backend
 
 ## 14. Support & Documentation
 
-- **Deployment**: See DEPLOYMENT-AWS.md, DEPLOYMENT-GCP.md
-- **Operations**: See OPERATIONS.md
+- **Deployment**: See [aws.md](aws.md), [gcp.md](gcp.md)
+- **Operations**: See [operations.md](../operations.md)
 - **Development**: See README.md
 - **API Docs**: http://yourdomain.com:8000/docs (dev mode)
 
@@ -546,4 +546,4 @@ curl http://localhost/api/health | jq
 
 **Ready to deploy!** Choose your platform above and follow the specific guide.
 
-For questions, see OPERATIONS.md or check cloud platform documentation.
+For questions, see [operations.md](../operations.md) or check cloud platform documentation.

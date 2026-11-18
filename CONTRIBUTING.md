@@ -403,7 +403,7 @@ Closes #123
 
 ## Contributors
 
-We appreciate all contributions! See [CONTRIBUTORS.md](CONTRIBUTORS.md) for a list of amazing people who have helped.
+We appreciate all contributions!
 
 ---
 
