@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Options Market Scanner · Gamma, IV Surface & Scenarios</title>
+    <meta name="description" content="Scan the most volatile option markets of the day, map dealer gamma walls, fit the implied-volatility surface and explore scenarios for long calls, puts and straddles.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="scanner.css">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body class="scanner-page">
+    <header class="scan-topbar">
+        <div class="logo">
+            <span class="logo-icon">Γ</span>
+            <div>
+                <span class="logo-title">Options Market Scanner</span>
+                <span class="logo-sub">Gamma · IV surface · Scenarios</span>
+            </div>
+        </div>
+        <nav class="scan-nav">
+            <a href="index.html">Greeks Calculator</a>
+            <a href="scanner.html" class="active">Market Scanner</a>
+        </nav>
+        <div class="scan-controls">
+            <div class="toggle-group compact" id="sourceToggle" title="Data source">
+                <button class="toggle-btn active" data-value="yahoo">Live</button>
+                <button class="toggle-btn" data-value="synthetic">Demo</button>
+            </div>
+            <select id="sortBy" class="input-field select" title="Rank by">
+                <option value="atm_iv">Rank: ATM IV</option>
+                <option value="iv_rv">Rank: IV / RV</option>
+                <option value="expected_move">Rank: Expected move</option>
+                <option value="volume">Rank: Option volume</option>
+            </select>
+            <input id="customSymbols" class="input-field" placeholder="Custom tickers (optional): TSLA, NVDA…">
+            <button id="scanButton" class="btn-fetch">Scan</button>
+        </div>
+    </header>
+
+    <main class="scan-main">
+        <div id="banner" class="banner hidden"></div>
+
+        <!-- 1. Scanner -->
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Top 10 most volatile option markets</h2>
+                <span class="panel-sub" id="scanMeta">Press Scan to rank the universe</span>
+            </div>
+            <div class="table-wrap">
+                <table class="scan-table" id="scanTable">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Symbol</th><th>Spot</th><th>Expiry</th>
+                            <th title="At-the-money implied volatility from the fitted SVI smile">ATM IV</th>
+                            <th title="20-day close-to-close realised volatility">RV 20d</th>
+                            <th title="Implied / realised. Above 1.2 = options rich, below 0.85 = cheap">IV/RV</th>
+                            <th title="1σ expected move to expiry">Exp. move</th>
+                            <th title="Put/call volume ratio">P/C</th>
+                            <th>Volume</th>
+                            <th title="Dealer gamma regime">Gamma</th>
+                            <th>Put wall</th><th>Call wall</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scanBody">
+                        <tr><td colspan="13" class="empty-state">No scan yet</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 2. Symbol analysis -->
+        <section class="panel hidden" id="analysisPanel">
+            <div class="panel-head">
+                <h2 id="symbolTitle">—</h2>
+                <span class="panel-sub" id="symbolMeta"></span>
+            </div>
+            <div class="stat-grid" id="statGrid"></div>
+
+            <div class="analysis-grid">
+                <div class="chart-section">
+                    <div class="tab-bar" id="analysisTabs">
+                        <button class="tab-btn active" data-tab="gexTab">Gamma exposure</button>
+                        <button class="tab-btn" data-tab="smileTab">Vol smile + SVI</button>
+                        <button class="tab-btn" data-tab="surfaceTab">IV surface</button>
+                        <button class="tab-btn" data-tab="forwardTab">Forwards & dividends</button>
+                    </div>
+                    <div class="chart-area">
+                        <div id="gexTab" class="tab-pane active">
+                            <div id="gexChart" class="chart-container"></div>
+                            <div id="gexProfileChart" class="chart-container short"></div>
+                            <p class="footnote" id="gexNote"></p>
+                        </div>
+                        <div id="smileTab" class="tab-pane">
+                            <div id="smileChart" class="chart-container tall"></div>
+                        </div>
+                        <div id="surfaceTab" class="tab-pane">
+                            <div id="surfaceChart3d" class="chart-container tall"></div>
+                        </div>
+                        <div id="forwardTab" class="tab-pane">
+                            <div class="table-wrap">
+                                <table class="scan-table" id="forwardTable"></table>
+                            </div>
+                            <p class="footnote">
+                                Forward and dividend yield are backed out of put-call parity: regressing C − P on strike gives
+                                slope −DF and intercept DF·F. SVI is fitted to out-of-the-money implied vols, weighted by vega.
+                                Butterfly check = Durrleman's g(k) ≥ 0. Calendar check = total variance rising with maturity.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="levels-card">
+                    <h3>Key levels</h3>
+                    <ul id="levelsList" class="levels-list"></ul>
+                    <p class="footnote">Levels for the scenario expiry. Walls come from dealer gamma, not raw open interest.</p>
+                </aside>
+            </div>
+        </section>
+
+        <!-- 3. Scenarios -->
+        <section class="panel hidden" id="scenarioPanel">
+            <div class="panel-head">
+                <h2>Scenario explorer</h2>
+                <span class="panel-sub">What could happen, and what it means for the position. Not trade signals.</span>
+            </div>
+            <div class="scenario-controls">
+                <div class="toggle-group" id="strategyToggle">
+                    <button class="toggle-btn" data-value="long_call">Long call</button>
+                    <button class="toggle-btn" data-value="long_put">Long put</button>
+                    <button class="toggle-btn active" data-value="long_straddle">Long straddle</button>
+                </div>
+                <label>Expiry <select id="expirySelect" class="input-field select"></select></label>
+                <label>Strike <select id="strikeSelect" class="input-field select"></select></label>
+                <label>IV shift
+                    <select id="ivShift" class="input-field select">
+                        <option value="-0.10">−10 vol pts</option>
+                        <option value="-0.05">−5 vol pts</option>
+                        <option value="0" selected>No change</option>
+                        <option value="0.05">+5 vol pts</option>
+                        <option value="0.10">+10 vol pts</option>
+                    </select>
+                </label>
+                <button id="runScenario" class="btn-fetch">Run</button>
+            </div>
+
+            <div class="stat-grid" id="positionGrid"></div>
+            <div class="scenario-cards" id="scenarioCards"></div>
+            <div class="two-col">
+                <div class="chart-card"><div id="pnlChart" class="chart-container"></div></div>
+                <div class="chart-card"><div id="densityChart" class="chart-container"></div></div>
+            </div>
+            <p class="footnote" id="disclaimer"></p>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <span>Options Market Scanner · decision support, not financial advice</span>
+        <span>FastAPI · NumPy/SciPy · Plotly.js</span>
+    </footer>
+
+    <script src="api.js"></script>
+    <script src="scanner.js"></script>
+</body>
+</html>

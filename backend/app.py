@@ -229,12 +229,13 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ============================================================
 # Import routes - support both package and standalone run
 try:
-    from backend.routes import api
+    from backend.routes import api, analytics
 except ImportError:
-    from routes import api
+    from routes import api, analytics
 
 # Include API routes
 app.include_router(api.router)
+app.include_router(analytics.router)
 
 
 # ============================================================

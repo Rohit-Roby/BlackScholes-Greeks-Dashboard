@@ -1,6 +1,94 @@
-# Black-Scholes Greeks Dashboard
+# Black-Scholes Greeks Dashboard + Options Market Scanner
 
-A production-grade options pricing and Greeks-analytics web app. The backend is a FastAPI service that implements the **Black-Scholes-Merton** model from first principles using NumPy/SciPy and exposes a rate-limited REST API; the frontend is a zero-build Plotly.js dashboard that visualises the full Greeks surface across a range of spot prices in real time. Live equity quotes and historical realised volatility are pulled from Yahoo Finance.
+A production-grade options analytics web app in two parts:
+
+1. **Greeks Calculator**: Black-Scholes-Merton pricing and all five Greeks from first principles, with interactive sensitivity charts.
+2. **Options Market Scanner** (`frontend/scanner.html`, `backend/analytics/`): scans a universe of optionable stocks each day, ranks the **10 most volatile option markets**, maps **dealer gamma exposure (put walls, call walls, gamma flip)**, builds an **arbitrage-checked SVI implied-volatility surface** with **implied forwards and dividends**, and runs **scenario analysis** for long calls, puts and straddles.
+
+The scanner is built as **decision support, not a signal generator**. It shows what the options market is pricing in and what that would mean for a position, and leaves the decision to the trader.
+
+![Options Market Scanner](docs/images/market_scanner.png)
+
+---
+
+## Options Market Scanner
+
+### Why I built it
+
+I trade index options, and the questions I ask before a trade are always the same. Which names are moving? Where are dealers positioned, and where are the levels that price tends to pin to or break through? Are options cheap or expensive relative to how the stock is actually moving? If I buy this straddle, what has to happen for it to pay, and how likely does the market think that is? This module answers those questions in one screen.
+
+### What it does
+
+| Feature | How it works | Code |
+|---|---|---|
+| **Daily volatility scanner** | Ranks a 20-name universe (or your own tickers) by ATM IV, IV/RV ratio, expected move or option volume. Symbols are fetched concurrently and failures are isolated. | `analytics/scanner.py` |
+| **Implied forward and dividend** | Regresses `C − P` on strike for each expiry. Put-call parity gives slope `−DF` and intercept `DF·F`, so the market's own forward, discount factor, dividend yield and PV of dividends fall out, with no assumed dividend. Robust to stale quotes (MAD outlier rejection). | `analytics/forward.py` |
+| **Vectorised IV solver** | Safeguarded Newton with a bisection fallback, solving a whole chain in one NumPy pass. It never diverges, and prices outside no-arbitrage bounds return `NaN` instead of a fake number. | `analytics/bsm.py` |
+| **SVI smile and surface** | Fits Gatheral's raw SVI to out-of-the-money IVs per expiry (vega-weighted, multi-start, bounded). Checks **butterfly arbitrage** (Durrleman's `g(k) ≥ 0`) and **calendar arbitrage** (total variance rising with maturity). | `analytics/svi.py`, `analytics/surface.py` |
+| **Gamma exposure (GEX)** | `gamma × OI × 100 × S² × 1%` per strike, assuming dealers are long calls and short puts. Finds the **call wall**, **put wall** and the **gamma flip** (where total GEX changes sign as spot moves), and labels the regime: positive gamma dampens moves, negative gamma amplifies them. | `analytics/gex.py` |
+| **Scenario engine** | Builds the **risk-neutral price distribution from the SVI smile** (Breeden-Litzenberger), so put skew is reflected. Gives probability of profit, breakevens, max loss, 1σ expected move, max pain, key levels, a P&L grid (spot × days × IV shift) and plain-language scenarios (pinned between walls, break above call wall, break below put wall, gamma regime change, vol rich or cheap). | `analytics/scenarios.py` |
+| **Data sources** | `YahooChainSource` (live, delayed) and `SyntheticChainSource` (deterministic chains with a planted SVI smile, dividend yield and OI walls). Synthetic data powers offline demos and gives the tests a ground truth. New vendors plug in by subclassing `ChainSource`. | `analytics/sources.py` |
+
+Scope is deliberately limited to **long call, long put and long straddle**: defined risk, no stock, no naked short options.
+
+### Validation
+
+The tests check that the analytics **recover a known answer**, not just that they run:
+
+- the IV solver round-trips prices to 1e-6 vol and matches the original calculator when `q = 0`
+- the forward estimator recovers the planted dividend yield within 0.3% and an exact forward from clean parity
+- SVI recovers a known smile to < 0.01 vol pts, and the arbitrage checks flag deliberately bad parameters
+- GEX walls land on the planted open-interest strikes, and GEX scales linearly with open interest
+- the risk-neutral density integrates to 1 and its mean equals the forward (martingale check), with a fatter left tail under put skew
+- long-premium P&L never loses more than the premium paid
+- the Yahoo adapter's schema mapping is tested against mocked `yfinance` frames (no network in CI)
+
+```bash
+pytest backend/tests -q            # 48 tests (analytics module ~95% covered)
+```
+
+| Vol smile vs SVI fit | Forwards, dividends and arbitrage checks |
+|---|---|
+| ![smile](docs/images/vol_smile_svi.png) | ![forwards](docs/images/forwards_dividends.png) |
+
+### Run it
+
+```bash
+# from the project root
+pip install -r backend/requirements.txt
+python -m uvicorn backend.app:app --port 8000      # API
+cd frontend && python -m http.server 8080          # UI -> http://localhost:8080/scanner.html
+```
+
+Use the **Live / Demo** toggle (or `scanner.html?source=synthetic`) to switch between Yahoo Finance and offline demo data.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `CHAIN_SOURCE` | `yahoo` | Default data source (`yahoo` or `synthetic`) |
+| `RISK_FREE_RATE` | `0.04` | Continuously compounded rate used for the dividend yield and pricing |
+| `ANALYTICS_CACHE_TTL` | `300` | Seconds to cache chains and analyses |
+
+### Analytics API
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/analytics/scanner?top=10&sort_by=atm_iv&symbols=&source=` | Ranked top-N table |
+| `GET /api/analytics/{symbol}?source=` | Surface (forwards, dividends, SVI fits, arbitrage flags) + GEX profile, walls, flip |
+| `GET /api/analytics/{symbol}/scenarios?strategy=long_straddle&expiry=&strike=&iv_shift=` | PoP, breakevens, key levels, P&L grid, density, scenarios |
+| `GET /api/analytics/meta` | Sources, universe, sort keys, strategies |
+
+### Honest limitations
+
+- **Risk-neutral probabilities are not forecasts.** They include the market's risk premium (downside protection is usually overpriced), so they show what is priced in, not what will happen.
+- **GEX sign is an assumption.** Open interest does not reveal who is long or short. The "dealers long calls, short puts" convention is standard but can be wrong for a given name.
+- **Yahoo data is delayed and sometimes stale.** The pipeline filters bad quotes, but a production version would use a paid vendor (OPRA feed, Databento, ORATS).
+- **US single-stock options are American.** The forward is fitted on near-the-money strikes, where the early-exercise premium is small, and the smile uses OTM options only. A full treatment would de-Americanise prices first.
+
+---
+
+## Black-Scholes Greeks Calculator
+
+The original calculator: the backend is a FastAPI service that implements the **Black-Scholes-Merton** model from first principles using NumPy/SciPy and exposes a rate-limited REST API; the frontend is a zero-build Plotly.js dashboard that visualises the full Greeks surface across a range of spot prices in real time. Live equity quotes and historical realised volatility are pulled from Yahoo Finance.
 
 The project is deliberately end-to-end: closed-form quantitative model, validated against put-call parity and known analytic bounds, served behind security middleware, packaged in a multi-stage Docker image, and documented for AWS/GCP/Azure deployment.
 
@@ -260,11 +348,13 @@ The pytest suite verifies the calculator by financial properties rather than jus
 ## Known limitations & roadmap
 
 - **European exercise only** — no early-exercise premium. American options would need a numerical scheme (binomial tree or LSM).
-- **Zero dividends** — extension to a continuous yield `q` is one parameter change away in the formulas.
+- **Zero dividends in the single-option calculator.** The scanner's `analytics/bsm.py` supports a continuous yield `q` and backs it out of the market.
 - **Yahoo Finance** is best-effort and rate-limited at source; a production deployment would proxy through a paid market-data vendor with caching.
 - **No persistence** for history beyond browser local-storage.
 
-Planned next steps: dividend yield `q`, implied-volatility solver (Brent), American options via binomial tree, multi-leg strategy P&L, Postgres-backed history.
+Done: dividend yield `q`, vectorised implied-volatility solver, SVI surface, gamma exposure, scenario engine (see Options Market Scanner).
+
+Planned next steps: de-Americanised prices via a binomial tree, discrete cash dividends, historical IV rank (needs stored daily snapshots), Postgres-backed history.
 
 ---
 
