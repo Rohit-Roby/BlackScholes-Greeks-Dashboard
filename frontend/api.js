@@ -87,6 +87,29 @@ class GreeksAPI {
     }
 
     /**
+     * Options market analytics: scanner, surface + gamma exposure, scenarios
+     */
+    async getScanner({ source, sortBy = 'atm_iv', top = 10, symbols = '' } = {}) {
+        const q = new URLSearchParams({ sort_by: sortBy, top });
+        if (source) q.set('source', source);
+        if (symbols) q.set('symbols', symbols);
+        return this.request(`/analytics/scanner?${q}`);
+    }
+
+    async getAnalysis(symbol, source) {
+        const q = source ? `?source=${encodeURIComponent(source)}` : '';
+        return this.request(`/analytics/${encodeURIComponent(symbol)}${q}`);
+    }
+
+    async getScenarios(symbol, { strategy, expiry, strike, ivShift = 0, source } = {}) {
+        const q = new URLSearchParams({ strategy, iv_shift: ivShift });
+        if (expiry) q.set('expiry', expiry);
+        if (strike) q.set('strike', strike);
+        if (source) q.set('source', source);
+        return this.request(`/analytics/${encodeURIComponent(symbol)}/scenarios?${q}`);
+    }
+
+    /**
      * Health check
      */
     async healthCheck() {
