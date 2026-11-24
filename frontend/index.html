@@ -3,176 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Options Greeks Calculator & Dashboard</title>
-    <meta name="description" content="Professional options Greeks calculator using Black-Scholes model. Calculate Delta, Gamma, Theta, Vega, Rho with real-time visualizations.">
+    <title>Market Outlook · Range & Direction from Options Positioning</title>
+    <meta name="description" content="Expected range and direction lean for US stocks and ETFs, from Databento OPRA option chains, dealer gamma exposure and the implied-volatility smile, with a backtested track record.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link rel="stylesheet" href="scanner.css">
+    <link rel="stylesheet" href="outlook.css?v=1">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
-<body>
-    <div class="app-wrapper">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">
-                    <span class="logo-icon">Δ</span>
-                    <div>
-                        <span class="logo-title">Greeks</span>
-                        <span class="logo-sub">Calculator</span>
-                    </div>
-                </div>
-                <button class="theme-btn" id="themeToggle" title="Toggle theme">🌙</button>
+<body class="scanner-page">
+    <header class="scan-topbar">
+        <div class="logo">
+            <span class="logo-icon">◎</span>
+            <div>
+                <span class="logo-title">Market Outlook</span>
+                <span class="logo-sub">Range · Direction · Dealer gamma</span>
+            </div>
+        </div>
+        <nav class="scan-nav">
+            <a href="index.html" class="active">Market Outlook</a>
+            <a href="scanner.html">Market Scanner</a>
+        </nav>
+        <div class="scan-controls">
+            <div class="toggle-group compact" id="sourceToggle" title="Data source">
+                <button class="toggle-btn active" data-value="">Databento</button>
+                <button class="toggle-btn" data-value="synthetic">Demo</button>
+            </div>
+            <input id="tickerInput" class="input-field ticker" placeholder="Any US ticker, e.g. GOOGL" maxlength="10">
+            <button id="analyzeButton" class="btn-fetch">Analyze</button>
+        </div>
+    </header>
+
+    <main class="scan-main">
+        <div id="status" class="status-line">Loading…</div>
+        <div id="banner" class="banner hidden"></div>
+
+        <!-- 1. Watchlist -->
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Watchlist</h2>
+                <span class="panel-sub">Lean and next-session range from each symbol's option chain. Select one for the detail.</span>
+            </div>
+            <div class="watch-grid" id="watchGrid"></div>
+        </section>
+
+        <!-- 2. Detail -->
+        <section class="panel" id="detailPanel">
+            <div class="panel-head">
+                <h2 id="detailTitle">Select a symbol</h2>
+                <span class="panel-sub" id="detailMeta"></span>
             </div>
 
-            <div class="sidebar-body">
-                <!-- Market Data Fetch -->
-                <div class="input-group">
-                    <label class="input-label">📡 Live Market Data</label>
-                    <div class="symbol-row">
-                        <input type="text" id="symbol" placeholder="AAPL, SPY, TSLA…" class="input-field">
-                        <button id="fetchButton" class="btn-fetch">Fetch</button>
-                    </div>
-                    <div id="symbolStatus" class="status-badge"></div>
-                </div>
+            <div class="outlook-cards" id="outlookCards"></div>
 
-                <div class="divider"></div>
-
-                <!-- Option Type Toggle -->
-                <div class="input-group">
-                    <label class="input-label">Option Type</label>
-                    <div class="toggle-group" id="optionTypeToggle">
-                        <button class="toggle-btn active" data-value="call">📈 Call</button>
-                        <button class="toggle-btn" data-value="put">📉 Put</button>
-                    </div>
+            <div class="analysis-grid">
+                <div class="chart-card">
+                    <div id="rangeChart" class="chart-container tall"></div>
                 </div>
-
-                <!-- Parameters -->
-                <div class="input-group">
-                    <label class="input-label">Spot Price (S) <span class="param-hint">Current price</span></label>
-                    <div class="slider-row">
-                        <input type="number" id="spotPrice" value="100" step="0.5" min="0.01" class="num-input">
-                        <span class="num-unit">$</span>
-                    </div>
-                    <input type="range" id="spotPriceSlider" min="10" max="500" value="100" step="0.5" class="slider">
-                    <div class="slider-labels"><span>$10</span><span id="spotPriceValue">$100.00</span><span>$500</span></div>
-                </div>
-
-                <div class="input-group">
-                    <label class="input-label">Strike Price (K) <span class="param-hint">Target price</span></label>
-                    <div class="slider-row">
-                        <input type="number" id="strikePrice" value="100" step="0.5" min="0.01" class="num-input">
-                        <span class="num-unit">$</span>
-                    </div>
-                    <input type="range" id="strikePriceSlider" min="10" max="500" value="100" step="0.5" class="slider">
-                    <div class="slider-labels"><span>$10</span><span id="strikePriceValue">$100.00</span><span>$500</span></div>
-                </div>
-
-                <div class="input-group">
-                    <label class="input-label">Days to Expiry (T) <span class="param-hint">Calendar days</span></label>
-                    <div class="slider-row">
-                        <input type="number" id="daysToExpiration" value="30" step="1" min="1" max="1825" class="num-input">
-                        <span class="num-unit">d</span>
-                    </div>
-                    <input type="range" id="daysToExpirationSlider" min="1" max="365" value="30" step="1" class="slider">
-                    <div class="slider-labels"><span>1d</span><span id="daysToExpirationValue">30 days</span><span>365d</span></div>
-                </div>
-
-                <div class="input-group">
-                    <label class="input-label">Implied Volatility (σ) <span class="param-hint">Annual %</span></label>
-                    <div class="slider-row">
-                        <input type="number" id="impliedVolatility" value="25" step="0.5" min="0.1" max="300" class="num-input">
-                        <span class="num-unit">%</span>
-                    </div>
-                    <input type="range" id="impliedVolatilitySlider" min="1" max="150" value="25" step="0.5" class="slider">
-                    <div class="slider-labels"><span>1%</span><span id="impliedVolatilityValue">25.00%</span><span>150%</span></div>
-                </div>
-
-                <div class="input-group">
-                    <label class="input-label">Risk-Free Rate (r) <span class="param-hint">Annual %</span></label>
-                    <div class="slider-row">
-                        <input type="number" id="interestRate" value="5" step="0.1" min="0" max="20" class="num-input">
-                        <span class="num-unit">%</span>
-                    </div>
-                    <input type="range" id="interestRateSlider" min="0" max="15" value="5" step="0.1" class="slider">
-                    <div class="slider-labels"><span>0%</span><span id="interestRateValue">5.00%</span><span>15%</span></div>
-                </div>
-
-                <button id="calculateButton" class="btn-calculate">
-                    <span class="btn-icon">⚡</span> Calculate Greeks
-                </button>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-panel">
-            <!-- Top bar -->
-            <div class="topbar">
-                <div class="topbar-title">
-                    <h1>Options Greeks Dashboard</h1>
-                    <span class="topbar-sub">Black-Scholes Model · Real-time Analysis</span>
-                </div>
-                <div style="display:flex;gap:10px;align-items:center">
-                    <a href="scanner.html" class="btn-fetch" style="text-decoration:none">Γ Market Scanner →</a>
-                    <div class="moneyness-badge" id="moneynessBadge">—</div>
-                </div>
+                <aside class="levels-card">
+                    <h3>Key levels</h3>
+                    <ul class="levels-list" id="levelsList"></ul>
+                    <p class="footnote">Walls and flip come from open interest under the usual dealer assumption (long calls, short puts).</p>
+                </aside>
             </div>
 
-            <!-- Greeks Cards -->
-            <div class="greeks-grid" id="greeksCards">
-                <div class="placeholder-card">
-                    <div class="placeholder-icon">⚡</div>
-                    <p>Set your parameters and click <strong>Calculate Greeks</strong> to see results</p>
-                </div>
-            </div>
+            <h3 class="sub-head">Why it leans this way</h3>
+            <div class="factor-list" id="factorList"></div>
+        </section>
 
-            <!-- Chart Section -->
-            <div class="chart-section">
-                <div class="tab-bar">
-                    <button class="tab-btn active" data-tab="heatmap">
-                        <span>📈</span> Greeks Sensitivity
-                    </button>
-                    <button class="tab-btn" data-tab="surface">
-                        <span>🔥</span> Greeks Heatmap
-                    </button>
-                    <button class="tab-btn" data-tab="payoff">
-                        <span>💰</span> Payoff Diagram
-                    </button>
-                </div>
-
-                <div class="chart-area">
-                    <div id="heatmap" class="tab-pane active">
-                        <div id="heatmapChart" class="chart-container"></div>
-                    </div>
-                    <div id="surface" class="tab-pane">
-                        <div id="surfaceChart" class="chart-container"></div>
-                    </div>
-                    <div id="payoff" class="tab-pane">
-                        <div id="payoffChart" class="chart-container"></div>
-                    </div>
-                </div>
+        <!-- 3. Track record -->
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Track record</h2>
+                <span class="panel-sub" id="trackMeta">How past outlooks compared with the next day's close</span>
             </div>
+            <div class="stat-grid" id="trackGrid"></div>
+            <p class="footnote" id="trackNote"></p>
+        </section>
 
-            <!-- History -->
-            <div class="history-panel">
-                <div class="history-header">
-                    <h3>📋 Calculation History</h3>
-                    <button class="btn-clear" id="clearHistory" title="Clear history">Clear</button>
-                </div>
-                <div id="historyList" class="history-list">
-                    <p class="empty-state">No calculations yet — try entering parameters above</p>
-                </div>
-            </div>
-        </main>
-    </div>
+        <p class="footnote" id="disclaimer"></p>
+    </main>
 
     <footer class="footer">
-        <span>Options Greeks Calculator · Black-Scholes Model</span>
-        <span>Built with Python FastAPI + Plotly.js</span>
+        <span>Market Outlook · decision support, not investment advice</span>
+        <span>Databento OPRA · FastAPI · NumPy/SciPy · Plotly.js</span>
     </footer>
 
-    <script src="api.js"></script>
-    <script src="app.js"></script>
+    <script src="api.js?v=outlook2"></script>
+    <script src="outlook.js?v=2"></script>
 </body>
 </html>

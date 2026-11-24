@@ -1,0 +1,139 @@
+/* =============================================
+   Market Outlook page (extends styles.css + scanner.css)
+   ============================================= */
+
+.scan-controls .input-field.ticker { width: 200px; text-transform: uppercase; }
+
+.status-line { color: var(--text-secondary); font-size: 12.5px; }
+.status-line b { color: var(--text-primary); font-weight: 600; }
+
+/* Watchlist */
+.watch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 12px;
+}
+.watch-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: border-color var(--transition), background var(--transition);
+}
+.watch-card:hover { border-color: var(--border-light); background: var(--bg-hover); }
+.watch-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+.watch-card .top { display: flex; justify-content: space-between; align-items: baseline; }
+.watch-card .sym { font-size: 15px; }
+.watch-card .px { font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 13px; }
+.watch-card .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); }
+.watch-card .row b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+.watch-card.loading { cursor: progress; opacity: 0.6; }
+.watch-card.failed { cursor: default; border-style: dashed; }
+
+.pill.up { background: var(--green-glow); color: var(--green); }
+.pill.down { background: var(--red-glow); color: var(--red); }
+
+/* Detail cards */
+.outlook-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.o-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.o-card .label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.o-card .big { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.o-card .big.up { color: var(--green); }
+.o-card .big.down { color: var(--red); }
+.o-card .small { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.o-card .small b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* P(up) bar: red on the left, green on the right, marker at the probability */
+.prob-bar {
+    position: relative;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--red) 0%, var(--bg-hover) 50%, var(--green) 100%);
+    margin: 4px 0 2px;
+}
+.prob-bar .mark {
+    position: absolute;
+    top: -4px;
+    width: 3px;
+    height: 16px;
+    background: var(--text-primary);
+    border-radius: 2px;
+    transform: translateX(-50%);
+}
+.prob-bar .mid {
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    width: 1px;
+    height: 12px;
+    background: var(--text-muted);
+}
+.prob-scale { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-muted); }
+
+/* Factors */
+.sub-head { font-size: 14px; margin: 18px 0 10px; }
+.factor-list { display: flex; flex-direction: column; gap: 8px; }
+.factor {
+    display: grid;
+    grid-template-columns: 190px 160px 1fr;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+}
+.factor .name { font-weight: 600; }
+.factor .name small { display: block; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
+.factor .explain { color: var(--text-secondary); line-height: 1.45; }
+.contrib {
+    position: relative;
+    height: 10px;
+    background: var(--bg-hover);
+    border-radius: 5px;
+}
+.contrib::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    width: 1px;
+    height: 14px;
+    background: var(--text-muted);
+}
+.contrib .fill { position: absolute; top: 0; height: 100%; border-radius: 5px; }
+.contrib .fill.pos { left: 50%; background: var(--green); }
+.contrib .fill.neg { right: 50%; background: var(--red); }
+
+@media (max-width: 860px) {
+    .factor { grid-template-columns: 1fr; gap: 6px; }
+    .scan-controls { margin-left: 0; width: 100%; }
+    .scan-controls .input-field.ticker { flex: 1; width: auto; }
+}

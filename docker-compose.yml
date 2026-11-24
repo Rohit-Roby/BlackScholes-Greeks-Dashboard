@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Backend API Service
   backend:
@@ -13,8 +11,16 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - ENVIRONMENT=production
+      - CORS_ORIGINS=http://localhost,http://127.0.0.1,http://localhost:8080,http://localhost:3000
+      # Databento: DATABENTO_API_KEY (and optionally DATABENTO_DAILY_BUDGET_USD) come from .env.
+      - DATABENTO_CACHE_DIR=/app/data_cache/databento
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - ./backend/logs:/app/logs
+      - ./backend/data_cache:/app/data_cache
+      - ./backend/data:/app/data
     networks:
       - greeks-network
     healthcheck:

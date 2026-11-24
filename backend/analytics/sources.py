@@ -226,4 +226,7 @@ def get_source(name: str, rate: float = 0.04) -> ChainSource:
         return YahooChainSource(rate=rate)
     if name == "synthetic":
         return SyntheticChainSource(rate=rate)
-    raise ValueError(f"Unknown chain source '{name}'. Use 'yahoo' or 'synthetic'.")
+    if name == "databento":
+        from .databento_source import DatabentoChainSource  # optional dependency
+        return DatabentoChainSource(rate=rate)
+    raise ValueError(f"Unknown chain source '{name}'. Use 'yahoo', 'databento' or 'synthetic'.")
