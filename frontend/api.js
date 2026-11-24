@@ -1,5 +1,5 @@
 /**
- * API Service for communicating with the backend
+ * API client for the Market Outlook and Options Market Scanner pages
  */
 
 class GreeksAPI {
@@ -42,51 +42,6 @@ class GreeksAPI {
     }
 
     /**
-     * Calculate Greeks for given parameters
-     */
-    async calculateGreeks(params) {
-        return this.request('/calculate-greeks', {
-            method: 'POST',
-            body: {
-                spot_price: params.spotPrice,
-                strike_price: params.strikePrice,
-                days_to_expiration: params.daysToExpiration,
-                interest_rate: params.interestRate,
-                implied_volatility: params.impliedVolatility,
-                option_type: params.optionType || 'call'
-            }
-        });
-    }
-
-    /**
-     * Get Greeks surface data for visualization
-     */
-    async getGreeksSurface(params) {
-        return this.request('/greeks-surface', {
-            method: 'POST',
-            body: {
-                spot_price: params.spotPrice,
-                strike_price: params.strikePrice,
-                days_to_expiration: params.daysToExpiration,
-                interest_rate: params.interestRate,
-                implied_volatility: params.impliedVolatility,
-                option_type: params.optionType || 'call',
-                spot_range: params.spotRange || [0.8, 1.2],
-                num_points: params.numPoints || 30
-            }
-        });
-    }
-
-    /**
-     * Fetch market data for a symbol
-     */
-    async getMarketData(symbol) {
-        return this.request(`/market-data/${symbol}`, {
-            method: 'GET'
-        });
-    }
-
-    /**
      * Options market analytics: scanner, surface + gamma exposure, scenarios
      */
     async getScanner({ source, sortBy = 'atm_iv', top = 10, symbols = '' } = {}) {
@@ -107,6 +62,22 @@ class GreeksAPI {
         if (strike) q.set('strike', strike);
         if (source) q.set('source', source);
         return this.request(`/analytics/${encodeURIComponent(symbol)}/scenarios?${q}`);
+    }
+
+    /**
+     * Market outlook: expected range and direction lean from options positioning
+     */
+    async getOutlook(symbol, source) {
+        const q = source ? `?source=${encodeURIComponent(source)}` : '';
+        return this.request(`/outlook/${encodeURIComponent(symbol)}${q}`);
+    }
+
+    async getOutlookWatchlist() {
+        return this.request('/outlook/watchlist');
+    }
+
+    async getOutlookBacktest() {
+        return this.request('/outlook/backtest');
     }
 
     /**

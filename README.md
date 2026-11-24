@@ -1,13 +1,48 @@
-# Black-Scholes Greeks Dashboard + Options Market Scanner
+# Options Market Outlook & Scanner
 
-A production-grade options analytics web app in two parts:
+An options analytics web app built on a Black-Scholes-Merton engine written from first principles. It has two pages:
 
-1. **Greeks Calculator**: Black-Scholes-Merton pricing and all five Greeks from first principles, with interactive sensitivity charts.
-2. **Options Market Scanner** (`frontend/scanner.html`, `backend/analytics/`): scans a universe of optionable stocks each day, ranks the **10 most volatile option markets**, maps **dealer gamma exposure (put walls, call walls, gamma flip)**, builds an **arbitrage-checked SVI implied-volatility surface** with **implied forwards and dividends**, and runs **scenario analysis** for long calls, puts and straddles.
+1. **Market Outlook** (main page, `frontend/index.html`): pulls US equity and ETF option chains from **Databento's OPRA feed** and turns dealer gamma exposure and the implied-volatility smile into an **expected range** and a **direction lean** for the next session and the next five, with a **walk-forward track record**.
+2. **Options Market Scanner** (`frontend/scanner.html`): ranks the **10 most volatile option markets** of the day, maps **dealer gamma exposure (put walls, call walls, gamma flip)**, builds an **arbitrage-checked SVI volatility surface** with **implied forwards and dividends**, and runs **scenario analysis** for long calls, puts and straddles.
 
-The scanner is built as **decision support, not a signal generator**. It shows what the options market is pricing in and what that would mean for a position, and leaves the decision to the trader.
+Both are built as **decision support, not signal generators**. They show what the options market is pricing in and what dealer positioning implies, and leave the decision to the user.
 
-![Options Market Scanner](docs/images/market_scanner.png)
+![Market Outlook](docs/images/market_outlook.png)
+
+---
+
+## Market Outlook
+
+For each symbol on a watchlist the page answers two questions: *how far is it likely to move?* and *which way does positioning lean?*
+
+### How it works
+
+- **Data.** `DatabentoChainSource` pulls one snapshot per symbol from OPRA: contract definitions, the open interest published before the open (only the 10:00–12:00 UTC window, about a quarter of the cost of the full day), the last ten minutes of consolidated quotes, and the underlying's prices from EQUS.MINI. It implements the same `ChainSource` interface as the Yahoo and synthetic sources, so the SVI surface and GEX engine are reused unchanged.
+- **Range (the strong part).** The 1σ move comes from the ATM implied volatility of the matching expiry, scaled for the gamma regime: 0.85× when dealers are long gamma (their hedging dampens moves), 1.15× when they are short gamma (it extends them). In a long-gamma regime the call and put walls also cap the range.
+- **Direction (the weak part).** Four transparent factors, each scored −1…+1 and explained on the page: spot vs the gamma flip, pull toward the gamma pin (long gamma) or momentum (short gamma), room to the walls, and the options-implied probability of finishing up. The weighted score maps to P(up) with a deliberately small slope, so the model never claims more than about 62/38.
+- **Track record.** `backend/scripts/run_outlook_backtest.py` rebuilds the outlook from each past day's closing chain only (no look-ahead) and compares it with the next close: direction hit rate, Brier score against a coin flip, how often the range held, and realised vs implied move by regime. The page shows the result next to every call.
+
+### First backtest (SPY + QQQ, 9–20 Nov 2026, 20 observations)
+
+| Measure | Result | Baseline |
+|---|---|---|
+| Direction hit rate (15 days with a lean) | 40% | coin flip 50% |
+| Brier score | 0.259 | coin flip 0.25 (lower is better) |
+| Next close inside the next-session range | 40% | model said 68% |
+| Realised / implied move (all short-gamma days) | 1.25× | 1.15× assumed |
+
+Twenty observations is a smoke test, not evidence: it shows the pipeline works end to end. On this sample the direction lean did no better than chance and moves ran larger than implied, so the short-gamma range was too narrow. The parameters were deliberately **not** tuned to these 20 days; that needs a few hundred observations.
+
+### Cost control
+
+Databento bills per download, so every request is priced first with the free `metadata.get_cost` call and refused if it would take the day's spend over `DATABENTO_DAILY_BUDGET_USD` (default $1.50; backtests keep a separate ledger). Every download is cached on disk and never paid for twice, a cross-process file lock stops the API's workers buying the same file at once, and live quotes refresh at most every two hours. The 10-symbol watchlist costs about $1 a day at pay-as-you-go prices.
+
+### Limitations
+
+- **Latest completed session, not real time.** Databento's historical API serves equities up to the previous close and OPRA up to the open, so the page shows the last close plus that morning's open interest. Intraday data needs Databento Live.
+- **Direction is a lean, not a forecast.** GEX describes *how much* price tends to move far better than *which way*.
+- **The GEX sign is an assumption.** Open interest does not show who is long or short; the "dealers long calls, short puts" convention can be wrong for a given name.
+- **Not investment advice.**
 
 ---
 
@@ -15,7 +50,9 @@ The scanner is built as **decision support, not a signal generator**. It shows w
 
 ### Why I built it
 
-I trade index options, and the questions I ask before a trade are always the same. Which names are moving? Where are dealers positioned, and where are the levels that price tends to pin to or break through? Are options cheap or expensive relative to how the stock is actually moving? If I buy this straddle, what has to happen for it to pay, and how likely does the market think that is? This module answers those questions in one screen.
+I trade index options, and the questions I ask before a trade are always the same. Which names are moving? Where are dealers positioned, and where are the levels that price tends to pin to or break through? Are options cheap or expensive relative to how the stock is actually moving? If I buy this straddle, what has to happen for it to pay, and how likely does the market think that is? The scanner answers those questions on one screen.
+
+![Options Market Scanner](docs/images/market_scanner.png)
 
 ### What it does
 
@@ -25,106 +62,150 @@ I trade index options, and the questions I ask before a trade are always the sam
 | **Implied forward and dividend** | Regresses `C − P` on strike for each expiry. Put-call parity gives slope `−DF` and intercept `DF·F`, so the market's own forward, discount factor, dividend yield and PV of dividends fall out, with no assumed dividend. Robust to stale quotes (MAD outlier rejection). | `analytics/forward.py` |
 | **Vectorised IV solver** | Safeguarded Newton with a bisection fallback, solving a whole chain in one NumPy pass. It never diverges, and prices outside no-arbitrage bounds return `NaN` instead of a fake number. | `analytics/bsm.py` |
 | **SVI smile and surface** | Fits Gatheral's raw SVI to out-of-the-money IVs per expiry (vega-weighted, multi-start, bounded). Checks **butterfly arbitrage** (Durrleman's `g(k) ≥ 0`) and **calendar arbitrage** (total variance rising with maturity). | `analytics/svi.py`, `analytics/surface.py` |
-| **Gamma exposure (GEX)** | `gamma × OI × 100 × S² × 1%` per strike, assuming dealers are long calls and short puts. Finds the **call wall**, **put wall** and the **gamma flip** (where total GEX changes sign as spot moves), and labels the regime: positive gamma dampens moves, negative gamma amplifies them. | `analytics/gex.py` |
-| **Scenario engine** | Builds the **risk-neutral price distribution from the SVI smile** (Breeden-Litzenberger), so put skew is reflected. Gives probability of profit, breakevens, max loss, 1σ expected move, max pain, key levels, a P&L grid (spot × days × IV shift) and plain-language scenarios (pinned between walls, break above call wall, break below put wall, gamma regime change, vol rich or cheap). | `analytics/scenarios.py` |
-| **Data sources** | `YahooChainSource` (live, delayed) and `SyntheticChainSource` (deterministic chains with a planted SVI smile, dividend yield and OI walls). Synthetic data powers offline demos and gives the tests a ground truth. New vendors plug in by subclassing `ChainSource`. | `analytics/sources.py` |
+| **Gamma exposure (GEX)** | `gamma × OI × 100 × S² × 1%` per strike, assuming dealers are long calls and short puts. Finds the **call wall**, **put wall** and **gamma flip** (where total GEX changes sign as spot moves), and labels the regime. | `analytics/gex.py` |
+| **Scenario engine** | Builds the **risk-neutral distribution from the SVI smile** (Breeden-Litzenberger), so put skew is reflected. Gives probability of profit, breakevens, max loss, 1σ expected move, max pain, key levels, a P&L grid (spot × days × IV shift) and plain-language scenarios. | `analytics/scenarios.py` |
+| **Data sources** | `DatabentoChainSource` (OPRA), `YahooChainSource` (delayed) and `SyntheticChainSource` (deterministic chains with a planted SVI smile, dividend yield and OI walls, for offline demos and test ground truth). New vendors plug in by subclassing `ChainSource`. | `analytics/databento_source.py`, `analytics/sources.py` |
 
 Scope is deliberately limited to **long call, long put and long straddle**: defined risk, no stock, no naked short options.
-
-### Validation
-
-The tests check that the analytics **recover a known answer**, not just that they run:
-
-- the IV solver round-trips prices to 1e-6 vol and matches the original calculator when `q = 0`
-- the forward estimator recovers the planted dividend yield within 0.3% and an exact forward from clean parity
-- SVI recovers a known smile to < 0.01 vol pts, and the arbitrage checks flag deliberately bad parameters
-- GEX walls land on the planted open-interest strikes, and GEX scales linearly with open interest
-- the risk-neutral density integrates to 1 and its mean equals the forward (martingale check), with a fatter left tail under put skew
-- long-premium P&L never loses more than the premium paid
-- the Yahoo adapter's schema mapping is tested against mocked `yfinance` frames (no network in CI)
-
-```bash
-pytest backend/tests -q            # 48 tests (analytics module ~95% covered)
-```
 
 | Vol smile vs SVI fit | Forwards, dividends and arbitrage checks |
 |---|---|
 | ![smile](docs/images/vol_smile_svi.png) | ![forwards](docs/images/forwards_dividends.png) |
 
-### Run it
+---
+
+## Validation
+
+The tests check that the analytics **recover a known answer**, not just that they run:
+
+- the IV solver round-trips prices to 1e-6 vol and matches the closed-form Black-Scholes engine when `q = 0`
+- the forward estimator recovers the planted dividend yield within 0.3% and an exact forward from clean parity
+- SVI recovers a known smile to < 0.01 vol points, and the arbitrage checks flag deliberately bad parameters
+- GEX walls land on the planted open-interest strikes, and GEX scales linearly with open interest
+- the risk-neutral density integrates to 1 and its mean equals the forward (martingale check)
+- the Databento adapter maps OPRA definitions, open interest and quotes to the chain schema and recovers the volatility a fake chain was priced at; the spend ledger refuses requests over budget, and a cached request is never paid for twice
+- the outlook's probabilities stay inside their bounds, long gamma shrinks and wall-caps the range, and the backtest summary counts hits and coverage correctly
+- the Black-Scholes engine satisfies put-call parity, delta bounds and monotonicity, gamma peaking at the money, and the signs of vega and rho
+
+No test touches the network or spends money: Databento and Yahoo are replaced by fakes.
 
 ```bash
-# from the project root
-pip install -r backend/requirements.txt
-python -m uvicorn backend.app:app --port 8000      # API
-cd frontend && python -m http.server 8080          # UI -> http://localhost:8080/scanner.html
+pytest backend/tests -q            # 61 tests
 ```
 
-Use the **Live / Demo** toggle (or `scanner.html?source=synthetic`) to switch between Yahoo Finance and offline demo data.
+---
+
+## Black-Scholes engine
+
+Both pages sit on a pricing core written from first principles (`backend/analytics/bsm.py`, `backend/models/greeks_calculator.py`). Given spot `S`, strike `K`, time `T` in years, rate `r`, dividend yield `q` and volatility `σ`:
+
+```
+d1 = [ ln(S/K) + (r − q + σ²/2)·T ] / (σ·√T)
+d2 = d1 − σ·√T
+
+C  = S·e^{-qT}·N(d1) − K·e^{-rT}·N(d2)
+P  = K·e^{-rT}·N(−d2) − S·e^{-qT}·N(−d1)
+```
+
+| Greek | Call | Put |
+|---|---|---|
+| Delta (Δ) | `e^{-qT}·N(d1)` | `e^{-qT}·(N(d1) − 1)` |
+| Gamma (Γ) | `e^{-qT}·φ(d1) / (S·σ·√T)` | same |
+| Vega (ν) | `S·e^{-qT}·φ(d1)·√T` | same |
+
+Gamma drives the GEX profile, vega weights the SVI fit, and the price function feeds the implied-volatility solver and the risk-neutral density. The original closed-form Greeks are still served by `POST /api/calculate-greeks`.
+
+---
+
+## Quick start
+
+### With Docker (recommended)
+
+```bash
+# optional: Databento for the Market Outlook (git-ignored)
+echo "DATABENTO_API_KEY=db-..." >> .env
+
+docker compose up -d --build
+# Market Outlook:  http://localhost
+# Market Scanner:  http://localhost/scanner.html
+# API:             http://localhost:8000
+```
+
+Without a Databento key the outlook falls back to Yahoo and says so. The **Demo** toggle on both pages uses synthetic chains and costs nothing.
+
+### Without Docker
+
+```bash
+pip install -r backend/requirements.txt
+python -m uvicorn backend.app:app --port 8000      # API
+cd frontend && python -m http.server 8080          # UI -> http://localhost:8080
+```
+
+### Backtest the outlook
+
+```bash
+python -m backend.scripts.run_outlook_backtest --symbols SPY QQQ \
+    --start 2026-11-09 --end 2026-11-20 --budget 6
+```
+
+Every download is priced and cached, so re-runs are free. Results go to `backend/data/outlook_backtest.json`, which the page reads.
+
+### Configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `CHAIN_SOURCE` | `yahoo` | Default data source (`yahoo` or `synthetic`) |
-| `RISK_FREE_RATE` | `0.04` | Continuously compounded rate used for the dividend yield and pricing |
-| `ANALYTICS_CACHE_TTL` | `300` | Seconds to cache chains and analyses |
+| `DATABENTO_API_KEY` | (none) | Enables Databento for the Market Outlook |
+| `DATABENTO_DAILY_BUDGET_USD` | `1.50` | Cap on live Databento spend per day |
+| `OUTLOOK_WATCHLIST` | `SPY,QQQ,NVDA,TSLA,AAPL,AMD,META,MSFT,AMZN,IWM` | Symbols the outlook page loads and the backend prefetches |
+| `OUTLOOK_PREFETCH` | `1` | `0` stops the background warm-up of the watchlist |
+| `CHAIN_SOURCE` | `yahoo` | Default source for the scanner (`yahoo`, `databento` or `synthetic`) |
+| `RISK_FREE_RATE` | `0.04` | Continuously compounded rate used for dividends and pricing |
+| `ANALYTICS_CACHE_TTL` | `300` | Seconds to cache chains and analyses in memory |
 
-### Analytics API
+---
+
+## API
 
 | Endpoint | Returns |
 |---|---|
+| `GET /api/outlook/{symbol}?source=` | Ranges per horizon, direction lean with factors, key levels, GEX profile, track record |
+| `GET /api/outlook/watchlist` | Watchlist symbols, data source, Databento spend today vs budget |
+| `GET /api/outlook/backtest` | Backtest summary and every observation |
 | `GET /api/analytics/scanner?top=10&sort_by=atm_iv&symbols=&source=` | Ranked top-N table |
 | `GET /api/analytics/{symbol}?source=` | Surface (forwards, dividends, SVI fits, arbitrage flags) + GEX profile, walls, flip |
 | `GET /api/analytics/{symbol}/scenarios?strategy=long_straddle&expiry=&strike=&iv_shift=` | PoP, breakevens, key levels, P&L grid, density, scenarios |
 | `GET /api/analytics/meta` | Sources, universe, sort keys, strategies |
+| `POST /api/calculate-greeks` | Closed-form price and Greeks for one option |
+| `GET /health` | Liveness probe |
 
-### Honest limitations
-
-- **Risk-neutral probabilities are not forecasts.** They include the market's risk premium (downside protection is usually overpriced), so they show what is priced in, not what will happen.
-- **GEX sign is an assumption.** Open interest does not reveal who is long or short. The "dealers long calls, short puts" convention is standard but can be wrong for a given name.
-- **Yahoo data is delayed and sometimes stale.** The pipeline filters bad quotes, but a production version would use a paid vendor (OPRA feed, Databento, ORATS).
-- **US single-stock options are American.** The forward is fitted on near-the-money strikes, where the early-exercise premium is small, and the smile uses OTM options only. A full treatment would de-Americanise prices first.
+`source` is `databento`, `yahoo` or `synthetic`. The analytics endpoints are rate-limited per IP.
 
 ---
 
-## Black-Scholes Greeks Calculator
+## Architecture
 
-The original calculator: the backend is a FastAPI service that implements the **Black-Scholes-Merton** model from first principles using NumPy/SciPy and exposes a rate-limited REST API; the frontend is a zero-build Plotly.js dashboard that visualises the full Greeks surface across a range of spot prices in real time. Live equity quotes and historical realised volatility are pulled from Yahoo Finance.
-
-The project is deliberately end-to-end: closed-form quantitative model, validated against put-call parity and known analytic bounds, served behind security middleware, packaged in a multi-stage Docker image, and documented for AWS/GCP/Azure deployment.
-
----
-
-## What this project demonstrates
-
-A compact list of the skills this codebase exercises end-to-end. Each bullet maps to concrete files in the repo.
-
-### Quantitative / Financial Engineering
-- **Black-Scholes-Merton pricing for European calls and puts** — closed-form implementation of `d1`, `d2`, `C = S·N(d1) − K·e^{-rT}·N(d2)`, and the put-counterpart (`backend/models/greeks_calculator.py`).
-- **All five Greeks from first principles**: Delta, Gamma, Theta (converted to *daily* decay), Vega (per 1% IV move), and Rho (per 1% rate move) — separate analytic formulas for calls and puts where they differ.
-- **Numerical correctness verified by financial invariants**: put-call parity (`C − P = S − K·e^{-rT}`), monotonicity of call delta in spot, Gamma peaking at-the-money, sign conventions for Rho (positive calls / negative puts), and call/put delta bounds — see `backend/tests/test_greeks.py`.
-- **Historical volatility estimation** from Yahoo Finance closes: log returns, sample stdev, √252 annualisation (`backend/services/market_data.py`).
-- **Greeks-surface computation across configurable spot grids** for sensitivity visualisation (`POST /api/greeks-surface`).
-
-### Backend / API Engineering
-- **FastAPI** application with Pydantic v2 request/response models, strict field constraints (`gt`, `ge`, `le`), and a custom `field_validator` that gracefully accepts either decimal (`0.25`) or percentage (`25`) inputs (`backend/utils/validation.py`).
-- **Per-endpoint rate limiting** via SlowAPI keyed on remote IP — 100/min for calc, 50/min for surface, 30/min for market data.
-- **Production middleware stack**: TrustedHost, GZip compression, CORS with environment-aware allow-list, plus a custom security-headers middleware (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security` in prod).
-- **Structured, rotating logs** (10MB × 5) with optional JSON formatter for log shippers; settings loaded from env via `pydantic-settings`.
-- **Twelve-factor configuration**: every knob (CORS origins, rate-limit thresholds, log format, environment) is overridable via environment variables.
-- **Global exception handler** that hides stack traces in production while preserving full context in `development`.
-
-### Frontend / UX
-- **Zero-build vanilla ES6** SPA (HTML + CSS + JS, no bundler, no framework) — fast to clone, fast to load.
-- **Plotly.js interactive visualisations**: Greeks sensitivity sliced over spot, full Greeks heat-map across the surface, and option payoff diagrams at expiration.
-- **Synchronised inputs**: numeric fields and range sliders are two-way-bound for every parameter.
-- **Local-storage calculation history** with one-click parameter restore; dark/light theme; responsive layout.
-
-### DevOps / Production Readiness
-- **Multi-stage Dockerfile** (Python 3.11-slim builder + lean runtime), running as a non-root `appuser`, `tini` as PID 1 for clean signal handling, and a baked-in `HEALTHCHECK`.
-- **docker-compose** stack with a hardened Nginx reverse proxy for the static frontend (`docker-compose.yml`, `nginx.conf`, `proxy_headers.conf`); separate `docker-compose.prod.yml` for production.
-- **Deployment playbooks** for AWS, GCP, and Azure, plus an [operations runbook](docs/operations.md) and a [pre-flight checklist](docs/deployment/checklist.md).
-- **Deployment validation scripts** for Linux (`validate-deployment.sh`) and Windows (`validate-deployment.bat`).
-- **Pytest suite** covering ATM/ITM/OTM regimes and edge cases on every Greek.
+```
+  Browser ── index.html (Market Outlook) ── scanner.html (Market Scanner) ── Plotly.js
+     │
+     │ JSON
+     ▼
+  FastAPI (TrustedHost → GZip → CORS → security headers, SlowAPI rate limits)
+     │
+     ├── routes/outlook.py ─────► analytics/outlook.py        range + direction lean
+     │                            analytics/outlook_backtest.py
+     ├── routes/analytics.py ───► analytics/scanner.py, scenarios.py
+     │
+     │        analytics/service.py   in-memory TTL cache, single-flight per symbol
+     │                 │
+     │        surface.py (forwards, IV, SVI) ─► gex.py (walls, flip, regime)
+     │                 │
+     │        ChainSource ── DatabentoChainSource ─► Databento OPRA + EQUS.MINI
+     │                     │      (priced first, budget-capped, cached on disk)
+     │                     ├─ YahooChainSource ────► Yahoo Finance
+     │                     └─ SyntheticChainSource   (offline, ground truth)
+     │
+     └── Nginx serves the static frontend and proxies /api
+```
 
 ---
 
@@ -132,157 +213,12 @@ A compact list of the skills this codebase exercises end-to-end. Each bullet map
 
 | Layer | Technology |
 |---|---|
-| Quantitative core | Python 3.11, **NumPy**, **SciPy** (`scipy.stats.norm`) |
-| API | **FastAPI**, **Uvicorn** (async ASGI), Pydantic v2, **SlowAPI** rate limiter |
-| Market data | **yfinance** (Yahoo Finance), pandas |
+| Quant core | Python 3.11, **NumPy**, **SciPy**, pandas |
+| Market data | **Databento** (OPRA, EQUS.MINI), yfinance, Parquet cache (pyarrow) |
+| API | **FastAPI**, Uvicorn, Pydantic v2, SlowAPI |
 | Frontend | Vanilla HTML/CSS/ES6, **Plotly.js** |
-| Packaging | Multi-stage **Docker**, **docker-compose**, **Nginx** |
+| Packaging | Multi-stage **Docker** (non-root, tini, healthcheck), docker-compose, **Nginx** |
 | Testing | **pytest** |
-
----
-
-## Architecture
-
-```
-                +----------------------------+
-                |     Browser (Plotly UI)    |
-                |   index.html / app.js      |
-                +-------------+--------------+
-                              | fetch (JSON)
-                              v
-   +------------------------------------------------------+
-   |                  FastAPI / Uvicorn                   |
-   |                                                      |
-   |  Middleware:                                         |
-   |    TrustedHost  -> GZip -> CORS -> SecurityHeaders   |
-   |                                                      |
-   |  Routes  (rate-limited per IP, slowapi)              |
-   |    POST /api/calculate-greeks    (100/min)           |
-   |    POST /api/greeks-surface      (50/min)            |
-   |    GET  /api/market-data/{sym}   (30/min)            |
-   |    GET  /health                                      |
-   |                                                      |
-   |  Services                                            |
-   |    BlackScholesCalculator   (NumPy + SciPy norm)     |
-   |    MarketDataService        (yfinance)               |
-   +------------------------------------------------------+
-                              |
-                              v
-                  +--------------------------+
-                  |  Yahoo Finance (yfinance)|
-                  +--------------------------+
-```
-
----
-
-## The math (Black-Scholes-Merton)
-
-Given spot `S`, strike `K`, time-to-expiration `T` in years, risk-free rate `r`, and volatility `σ`:
-
-```
-d1 = [ ln(S/K) + (r + σ²/2)·T ] / (σ·√T)
-d2 = d1 − σ·√T
-
-C  = S·N(d1) − K·e^{-rT}·N(d2)              (call price)
-P  = K·e^{-rT}·N(−d2) − S·N(−d1)            (put price)
-```
-
-Greeks (`φ` is the standard-normal PDF, `N` the CDF):
-
-| Greek | Call | Put |
-|---|---|---|
-| Delta (Δ) | `N(d1)` | `N(d1) − 1` |
-| Gamma (Γ) | `φ(d1) / (S·σ·√T)` | same |
-| Theta (Θ, per day) | `[−S·φ(d1)·σ/(2√T) − r·K·e^{-rT}·N(d2)] / 365` | `[−S·φ(d1)·σ/(2√T) + r·K·e^{-rT}·N(−d2)] / 365` |
-| Vega (ν, per 1% σ) | `S·φ(d1)·√T · 0.01` | same |
-| Rho (ρ, per 1% r) | `K·T·e^{-rT}·N(d2) · 0.01` | `−K·T·e^{-rT}·N(−d2) · 0.01` |
-
-Inputs are guarded: `S, K, σ > 0`, `T > 0`, percentage inputs are auto-detected and normalised to decimals.
-
----
-
-## Quick start
-
-### Prerequisites
-- Python 3.11+
-- A modern browser
-
-### Run locally (no Docker)
-
-```powershell
-# 1. Backend
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1          # Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
-python -m uvicorn app:app --host 127.0.0.1 --port 8000
-
-# 2. Frontend (new terminal, from project root)
-cd frontend
-python -m http.server 8080
-# Open http://localhost:8080
-```
-
-### Run with Docker
-
-```bash
-docker-compose up --build
-# Backend: http://localhost:8000
-# Frontend (via Nginx): http://localhost
-```
-
-### Run tests
-
-```bash
-cd backend
-pytest tests/ -v
-```
-
----
-
-## API reference
-
-### `POST /api/calculate-greeks`
-
-```jsonc
-// Request
-{
-  "spot_price": 100.0,
-  "strike_price": 100.0,
-  "days_to_expiration": 30,
-  "interest_rate": 5,          // accepts 5 or 0.05
-  "implied_volatility": 25,    // accepts 25 or 0.25
-  "option_type": "call"
-}
-
-// Response
-{
-  "call_price": 3.0626,  "put_price": 2.6525,
-  "delta_call": 0.5371,  "delta_put": -0.4629,
-  "gamma": 0.055421,
-  "theta_call": -0.054387, "theta_put": -0.040745,
-  "vega": 0.1139,
-  "rho_call": 0.0416,    "rho_put": -0.0402
-}
-```
-
-### `POST /api/greeks-surface`
-Returns Greeks vectors across a spot-price grid for heat-map visualisation. Body extends `calculate-greeks` with `spot_range: [low, high]` (as multipliers of spot) and `num_points: int` (5–100).
-
-### `GET /api/market-data/{symbol}`
-Live price + 1-year historical realised volatility from Yahoo Finance.
-
-```json
-{
-  "symbol": "AAPL",
-  "current_price": 297.20,
-  "historical_volatility": 0.2287,
-  "timestamp": "2026-05-19T17:05:57.212973"
-}
-```
-
-### `GET /health`
-Liveness probe returning service metadata.
 
 ---
 
@@ -291,27 +227,31 @@ Liveness probe returning service metadata.
 ```
 BlackScholes-Greeks-Dashboard/
 ├── backend/
-│   ├── app.py                          # FastAPI app, middleware, lifespan, settings
-│   ├── Dockerfile                      # Multi-stage, non-root, tini, healthcheck
-│   ├── requirements.txt
-│   ├── models/greeks_calculator.py     # Black-Scholes + all Greeks
-│   ├── routes/api.py                   # Rate-limited endpoints
-│   ├── services/market_data.py         # yfinance integration, hist-vol
-│   ├── utils/validation.py             # Pydantic request/response models
-│   └── tests/test_greeks.py            # 16 unit tests, financial invariants
+│   ├── app.py                          # FastAPI app, middleware, settings, prefetch
+│   ├── Dockerfile
+│   ├── analytics/
+│   │   ├── databento_source.py         # OPRA chains: budget ledger, disk cache, file lock
+│   │   ├── sources.py                  # ChainSource, Yahoo and synthetic sources
+│   │   ├── forward.py, bsm.py          # implied forwards/dividends, vectorised BSM + IV
+│   │   ├── svi.py, surface.py          # SVI fits, arbitrage checks, surface
+│   │   ├── gex.py                      # gamma exposure, walls, flip
+│   │   ├── scenarios.py, scanner.py    # scenario engine, volatility scanner
+│   │   ├── outlook.py                  # range + direction lean
+│   │   ├── outlook_backtest.py         # walk-forward evaluation
+│   │   └── service.py                  # caching service layer
+│   ├── routes/                         # outlook.py, analytics.py, api.py
+│   ├── scripts/run_outlook_backtest.py
+│   ├── data/outlook_backtest.json      # latest backtest results
+│   ├── models/greeks_calculator.py     # closed-form Black-Scholes Greeks
+│   └── tests/                          # 61 tests, no network
 ├── frontend/
-│   ├── index.html                      # Sidebar inputs + Plotly canvas
-│   ├── app.js                          # State, history, chart wiring
-│   ├── api.js                          # Typed fetch client
-│   └── styles.css                      # Theme tokens, responsive layout
-├── docker-compose.yml                  # Local stack (backend + Nginx)
-├── docker-compose.prod.yml             # Production stack
-├── nginx.conf, proxy_headers.conf      # Reverse proxy config
-└── docs/
-    ├── deployment/                     # AWS, GCP, Azure guides + pre-flight checklist
-    ├── operations.md                   # Runbook
-    ├── requirements.md                 # Functional requirements
-    └── quick-reference.md              # Common commands
+│   ├── index.html, outlook.js, outlook.css    # Market Outlook
+│   ├── scanner.html, scanner.js, scanner.css  # Market Scanner
+│   ├── api.js                                 # fetch client
+│   └── styles.css                             # theme tokens
+├── docker-compose.yml, docker-compose.prod.yml
+├── nginx.conf, proxy_headers.conf
+└── docs/                               # deployment guides, runbook, screenshots
 ```
 
 ---
@@ -325,36 +265,15 @@ BlackScholes-Greeks-Dashboard/
 | [Production hardening](docs/deployment/production.md) | Security and production configuration |
 | [Pre-flight checklist](docs/deployment/checklist.md) | Checks before going live |
 | [Operations runbook](docs/operations.md) | Monitoring, logs, troubleshooting |
-| [Requirements](docs/requirements.md) | Functional and non-functional requirements |
-| [Quick reference](docs/quick-reference.md) | Common commands |
 
 ---
 
-## Testing
+## Roadmap
 
-The pytest suite verifies the calculator by financial properties rather than just numeric snapshots — this catches a wider class of regressions:
-
-- ATM call/put prices are positive and bounded by spot
-- Put-call parity holds within `rtol=1e-4`
-- Call delta ∈ [0,1], put delta ∈ [−1,0]
-- Call delta is monotonically non-decreasing in spot
-- Gamma is strictly positive and peaks at-the-money
-- Vega is positive and identical for calls and puts
-- Rho is positive for calls, negative for puts
-- Invalid inputs (`S ≤ 0`, `T ≤ 0`, `σ ≤ 0`) raise `ValueError`
-
----
-
-## Known limitations & roadmap
-
-- **European exercise only** — no early-exercise premium. American options would need a numerical scheme (binomial tree or LSM).
-- **Zero dividends in the single-option calculator.** The scanner's `analytics/bsm.py` supports a continuous yield `q` and backs it out of the market.
-- **Yahoo Finance** is best-effort and rate-limited at source; a production deployment would proxy through a paid market-data vendor with caching.
-- **No persistence** for history beyond browser local-storage.
-
-Done: dividend yield `q`, vectorised implied-volatility solver, SVI surface, gamma exposure, scenario engine (see Options Market Scanner).
-
-Planned next steps: de-Americanised prices via a binomial tree, discrete cash dividends, historical IV rank (needs stored daily snapshots), Postgres-backed history.
+- A longer backtest (a few hundred observations across regimes) before tuning the range multipliers or direction weights.
+- Intraday snapshots through Databento Live.
+- De-Americanised prices via a binomial tree, and discrete cash dividends.
+- Historical IV rank from stored daily snapshots.
 
 ---
 

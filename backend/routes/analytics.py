@@ -38,8 +38,8 @@ def _symbol(symbol: str) -> str:
 
 
 def _source(source: Optional[str]) -> Optional[str]:
-    if source and source.lower() not in ("yahoo", "synthetic"):
-        raise HTTPException(status_code=400, detail="source must be 'yahoo' or 'synthetic'")
+    if source and source.lower() not in ("yahoo", "synthetic", "databento"):
+        raise HTTPException(status_code=400, detail="source must be 'yahoo', 'databento' or 'synthetic'")
     return source
 
 

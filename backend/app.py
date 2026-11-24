@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # .env also holds keys for other parts (e.g. DATABENTO_API_KEY)
 
 
 settings = Settings()
@@ -139,6 +140,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting Options Greeks Calculator API - {settings.api_version}")
     logger.info(f"Environment: {settings.environment}")
     logger.info(f"Debug mode: {settings.debug}")
+    if os.getenv("OUTLOOK_PREFETCH", "1") != "0" and analytics_service.outlook_source() == "databento":
+        analytics_service.prefetch_watchlist()
+        logger.info("Outlook prefetch started for %s", ", ".join(analytics_service.OUTLOOK_WATCHLIST))
     yield
     logger.info("Shutting down Options Greeks Calculator API")
 
@@ -229,13 +233,16 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ============================================================
 # Import routes - support both package and standalone run
 try:
-    from backend.routes import api, analytics
+    from backend.routes import api, analytics, outlook
+    from backend.analytics import service as analytics_service
 except ImportError:
-    from routes import api, analytics
+    from routes import api, analytics, outlook
+    from analytics import service as analytics_service
 
 # Include API routes
 app.include_router(api.router)
 app.include_router(analytics.router)
+app.include_router(outlook.router)
 
 
 # ============================================================

@@ -115,3 +115,6 @@ backend/logs/*.bak
 
 # Tooling artifacts
 tmpclaude-*
+
+# Databento downloads (paid data, cached locally)
+backend/data_cache/
